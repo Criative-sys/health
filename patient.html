@@ -1,0 +1,156 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Patient Dashboard</title>
+  <style>
+    body{font-family:Arial;margin:0;background:#0b1220;color:#e8eefc}
+    header{padding:18px 20px;background:#121b2f;display:flex;justify-content:space-between;align-items:center}
+    .grid{display:grid;grid-template-columns:1fr;gap:14px;max-width:1100px;margin:20px auto;padding:0 16px}
+    @media(min-width:900px){.grid{grid-template-columns:1fr 1fr}}
+    .card{background:#121b2f;border-radius:16px;padding:16px}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    input,select,button{padding:10px;border-radius:10px;border:1px solid #2a3557;background:#0b1220;color:#e8eefc}
+    button{border:none;background:#22c55e;font-weight:700;cursor:pointer}
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{border-bottom:1px solid #2a3557;padding:8px;text-align:left;font-size:14px}
+    .pill{display:inline-block;padding:4px 10px;border-radius:999px;background:#0b1220;border:1px solid #2a3557}
+    .bad{color:#ff8a8a}
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <div style="font-weight:800">Patient Dashboard</div>
+    <div id="pid" style="opacity:.8;font-size:13px"></div>
+  </div>
+  <button style="background:#ef4444" onclick="logout()">Logout</button>
+</header>
+
+<div class="grid">
+  <div class="card">
+    <h3>Live Biometric Data</h3>
+    <div id="latest"></div>
+  </div>
+
+  <div class="card">
+    <h3>Submit Reading (demo)</h3>
+    <div class="row">
+      <select id="type">
+        <option value="HR">HR (bpm)</option>
+        <option value="SpO2">SpO2 (%)</option>
+        <option value="TEMP">TEMP (°C)</option>
+      </select>
+      <input id="val" placeholder="Value" type="number" />
+      <button onclick="addReading()">Send</button>
+    </div>
+    <div id="sendMsg" style="margin-top:10px;opacity:.85"></div>
+  </div>
+
+  <div class="card">
+    <h3>Alerts</h3>
+    <div id="alerts"></div>
+  </div>
+
+  <div class="card">
+    <h3>History</h3>
+    <div class="row">
+      <select id="histType">
+        <option value="">All</option>
+        <option value="HR">HR</option>
+        <option value="SpO2">SpO2</option>
+        <option value="TEMP">TEMP</option>
+      </select>
+      <button onclick="loadHistory()">Refresh</button>
+    </div>
+    <div id="history"></div>
+  </div>
+</div>
+
+<script>
+const API_URL = "PASTE_YOUR_APPS_SCRIPT_WEB_APP_URL_HERE";
+
+function getProfile(){
+  const p = localStorage.getItem("profile");
+  return p ? JSON.parse(p) : null;
+}
+function getToken(){ return localStorage.getItem("token"); }
+function logout(){ localStorage.clear(); location.href="index.html"; }
+
+(async function init(){
+  const profile = getProfile();
+  if(!profile || profile.role !== "PATIENT") return logout();
+  document.getElementById("pid").textContent = `Patient ID: ${profile.patientId}`;
+  await loadSummary();
+  await loadHistory();
+})();
+
+async function api(body){
+  const r = await fetch(API_URL, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  return r.json();
+}
+
+async function loadSummary(){
+  const profile = getProfile();
+  const data = await api({action:"getPatientSummary", token:getToken(), patientId:profile.patientId});
+  if(!data.ok) return;
+
+  const latest = data.latest || {};
+  const box = Object.keys(latest).map(k=>{
+    const r = latest[k];
+    return `<div class="pill">${r.type}: <b>${r.value}</b> ${r.unit || ""}</div>`;
+  }).join(" ");
+  document.getElementById("latest").innerHTML = box || "<span style='opacity:.8'>No readings yet.</span>";
+
+  const alerts = (data.alerts || []).slice(0,20).map(a=>{
+    return `<div style="padding:8px 0;border-bottom:1px solid #2a3557">
+      <div><b>${a.type}</b> = ${a.value} | Rule: <span class="${a.severity==='HIGH'?'bad':''}">${a.rule}</span></div>
+      <div style="opacity:.7;font-size:12px">${a.ts} | Status: ${a.status}</div>
+    </div>`;
+  }).join("");
+  document.getElementById("alerts").innerHTML = alerts || "<span style='opacity:.8'>No alerts.</span>";
+}
+
+async function addReading(){
+  const profile = getProfile();
+  const type = document.getElementById("type").value;
+  const value = Number(document.getElementById("val").value);
+  const unit = (type==="HR")?"bpm":(type==="SpO2")?"%":"°C";
+
+  const data = await api({
+    action:"addReading",
+    token:getToken(),
+    patientId: profile.patientId,
+    type, value, unit, source:"web"
+  });
+
+  document.getElementById("sendMsg").textContent =
+    data.ok ? `Saved at ${data.ts}. Alerts created: ${(data.alertsCreated||[]).length}` : (data.error || "Failed");
+
+  await loadSummary();
+  await loadHistory();
+}
+
+async function loadHistory(){
+  const profile = getProfile();
+  const type = document.getElementById("histType").value;
+
+  const data = await api({
+    action:"getHistory",
+    token:getToken(),
+    patientId: profile.patientId,
+    type,
+    limit: 200
+  });
+  if(!data.ok) return;
+
+  const rows = data.rows || [];
+  let html = `<table><thead><tr><th>Time</th><th>Type</th><th>Value</th><th>Unit</th></tr></thead><tbody>`;
+  html += rows.map(r=>`<tr><td>${r.ts}</td><td>${r.type}</td><td>${r.value}</td><td>${r.unit||""}</td></tr>`).join("");
+  html += `</tbody></table>`;
+  document.getElementById("history").innerHTML = rows.length ? html : "<span style='opacity:.8'>No history.</span>";
+}
+</script>
+</body>
+</html>
