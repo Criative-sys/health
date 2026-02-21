@@ -1,0 +1,164 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Doctor Dashboard</title>
+  <style>
+    body{font-family:Arial;margin:0;background:#0b1220;color:#e8eefc}
+    header{padding:18px 20px;background:#121b2f;display:flex;justify-content:space-between;align-items:center}
+    .wrap{max-width:1100px;margin:20px auto;padding:0 16px}
+    .card{background:#121b2f;border-radius:16px;padding:16px;margin-bottom:14px}
+    select,input,button{padding:10px;border-radius:10px;border:1px solid #2a3557;background:#0b1220;color:#e8eefc}
+    button{border:none;background:#3b82f6;font-weight:700;cursor:pointer}
+    table{width:100%;border-collapse:collapse;margin-top:10px}
+    th,td{border-bottom:1px solid #2a3557;padding:8px;text-align:left;font-size:14px}
+    .bad{color:#ff8a8a}
+  </style>
+</head>
+<body>
+<header>
+  <div>
+    <div style="font-weight:800">Doctor Dashboard</div>
+    <div id="did" style="opacity:.8;font-size:13px"></div>
+  </div>
+  <button style="background:#ef4444" onclick="logout()">Logout</button>
+</header>
+
+<div class="wrap">
+  <div class="card">
+    <h3>Patients</h3>
+    <select id="patientSelect" onchange="loadPatient()"></select>
+    <button onclick="loadPatient()" style="margin-left:8px">Refresh</button>
+  </div>
+
+  <div class="card">
+    <h3>Patient Summary (Live + Alerts)</h3>
+    <div id="summary"></div>
+  </div>
+
+  <div class="card">
+    <h3>Patient History</h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <select id="histType">
+        <option value="">All</option>
+        <option value="HR">HR</option>
+        <option value="SpO2">SpO2</option>
+        <option value="TEMP">TEMP</option>
+      </select>
+      <button onclick="loadHistory()">Load</button>
+    </div>
+    <div id="history"></div>
+  </div>
+
+  <div class="card">
+    <h3>Set Threshold (Doctor)</h3>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <select id="tType">
+        <option value="HR">HR</option>
+        <option value="SpO2">SpO2</option>
+        <option value="TEMP">TEMP</option>
+      </select>
+      <input id="low" placeholder="Low" type="number" />
+      <input id="high" placeholder="High" type="number" />
+      <input id="delta" placeholder="Delta/min" type="number" />
+      <button onclick="setThreshold()">Save</button>
+    </div>
+    <div id="tMsg" style="margin-top:10px;opacity:.85"></div>
+  </div>
+</div>
+
+<script>
+const API_URL = "https://script.google.com/macros/s/AKfycbyq_bBuTZ9mHP93xgHiCfyrx7ttUZVn8Rnu8oPeKkApaH_rDT0CBa1idgf0BoNkyzpSqQ/exec";
+
+function getProfile(){ const p=localStorage.getItem("profile"); return p?JSON.parse(p):null; }
+function getToken(){ return localStorage.getItem("token"); }
+function logout(){ localStorage.clear(); location.href="index.html"; }
+
+async function api(body){
+  const r = await fetch(API_URL, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  return r.json();
+}
+
+(async function init(){
+  const profile = getProfile();
+  if(!profile || profile.role !== "DOCTOR") return logout();
+  document.getElementById("did").textContent = `Doctor ID: ${profile.doctorId}`;
+  await loadPatients();
+})();
+
+async function loadPatients(){
+  const data = await api({action:"getPatients", token:getToken()});
+  if(!data.ok) return;
+
+  const sel = document.getElementById("patientSelect");
+  sel.innerHTML = data.patients.map(p=>`<option value="${p.patientId}">${p.patientId} - ${p.fullName}</option>`).join("");
+  await loadPatient();
+}
+
+async function loadPatient(){
+  const pid = document.getElementById("patientSelect").value;
+  if(!pid) return;
+
+  const data = await api({action:"getPatientSummary", token:getToken(), patientId: pid});
+  if(!data.ok) return;
+
+  const latest = data.latest || {};
+  const latestHtml = Object.keys(latest).map(k=>{
+    const r = latest[k];
+    return `<div><b>${r.type}</b>: ${r.value} ${r.unit||""} <span style="opacity:.7;font-size:12px">(${r.ts})</span></div>`;
+  }).join("");
+
+  const alertsHtml = (data.alerts||[]).slice(0,15).map(a=>`
+    <div style="padding:8px 0;border-bottom:1px solid #2a3557">
+      <div><b>${a.type}</b> = ${a.value} | Rule: <span class="${a.severity==='HIGH'?'bad':''}">${a.rule}</span></div>
+      <div style="opacity:.7;font-size:12px">${a.ts} | Status: ${a.status}</div>
+    </div>
+  `).join("");
+
+  document.getElementById("summary").innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr;gap:10px">
+      <div><h4 style="margin:0 0 6px 0">Live</h4>${latestHtml || "<span style='opacity:.8'>No readings.</span>"}</div>
+      <div><h4 style="margin:10px 0 6px 0">Alerts</h4>${alertsHtml || "<span style='opacity:.8'>No alerts.</span>"}</div>
+    </div>
+  `;
+}
+
+async function loadHistory(){
+  const pid = document.getElementById("patientSelect").value;
+  const type = document.getElementById("histType").value;
+
+  const data = await api({action:"getHistory", token:getToken(), patientId: pid, type, limit: 200});
+  if(!data.ok) return;
+
+  const rows = data.rows || [];
+  let html = `<table><thead><tr><th>Time</th><th>Type</th><th>Value</th><th>Unit</th></tr></thead><tbody>`;
+  html += rows.map(r=>`<tr><td>${r.ts}</td><td>${r.type}</td><td>${r.value}</td><td>${r.unit||""}</td></tr>`).join("");
+  html += `</tbody></table>`;
+  document.getElementById("history").innerHTML = rows.length ? html : "<span style='opacity:.8'>No history.</span>";
+}
+
+async function setThreshold(){
+  const pid = document.getElementById("patientSelect").value;
+  const type = document.getElementById("tType").value;
+
+  const low = document.getElementById("low").value;
+  const high = document.getElementById("high").value;
+  const deltaPerMin = document.getElementById("delta").value;
+
+  const data = await api({
+    action:"setThreshold",
+    token:getToken(),
+    patientId: pid,
+    type,
+    low: low===""? "" : Number(low),
+    high: high===""? "" : Number(high),
+    deltaPerMin: deltaPerMin===""? "" : Number(deltaPerMin),
+    enabled: true
+  });
+
+  document.getElementById("tMsg").textContent = data.ok ? "Threshold saved." : (data.error || "Failed");
+}
+</script>
+</body>
+</html>
