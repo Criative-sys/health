@@ -5,44 +5,59 @@
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
   <title>Vitals | Login</title>
   <style>    
-    body{
+body{
   font-family:Arial;
   margin:0;
   background:#0b1220;
   color:#e8eefc;
+
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  min-height:100vh;
 }
 
-{
-  box-sizing: border-box;
+*{
+  box-sizing:border-box;
 }
 
 .wrap{
+  width:100%;
   max-width:420px;
-  margin:12vh auto;
   padding:20px;
 }
 
 .card{
+  width:100%;
   background:#121b2f;
   border-radius:16px;
-  padding:24px; 
+  padding:24px;
 }
 
-input,button{
+h2{
+  margin-top:0;
+  margin-bottom:18px;
+}
+
+input{
   width:100%;
   padding:12px;
   border-radius:10px;
   border:1px solid #2a3557;
   background:#0b1220;
   color:#e8eefc;
-  margin:0;   
+  margin-bottom:12px;
 }
 
 button{
+  width:100%;
+  padding:12px;
+  border-radius:10px;
   border:none;
   background:#3b82f6;
   font-weight:800;
   cursor:pointer;
+  margin-top:6px;
 }
 
 .err{
